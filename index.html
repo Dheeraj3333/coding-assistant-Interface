@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GenAI Coding Assistant</title>
+    <!-- Tailwind CSS for rapid styling -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style>
+      /* Custom scrollbar behavior for chat window */
+      .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+      }
+      .custom-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+      }
+    </style>
+  </head>
+  <body
+    class="bg-slate-900 text-slate-100 min-h-screen flex flex-col items-center justify-center p-4 font-sans"
+  >
+    <!-- Chat Container -->
+    <div
+      class="w-full max-w-3xl h-[85vh] bg-slate-800 rounded-2xl shadow-2xl border border-slate-700 flex flex-col overflow-hidden"
+    >
+      <!-- Header -->
+      <header
+        class="bg-slate-850 px-6 py-4 border-b border-slate-700 flex items-center justify-between"
+      >
+        <div class="flex items-center gap-3">
+          <div class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+          <h1 class="text-lg font-semibold tracking-wide">Coding Assistant</h1>
+        </div>
+        <span
+          class="text-xs bg-slate-700 text-slate-300 px-2.5 py-1 rounded-md font-mono border border-slate-600"
+          >Gemini 3 Flash</span
+        >
+      </header>
+
+      <!-- Chat History Window -->
+      <div
+        id="chat-window"
+        class="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar"
+      >
+        <!-- System Welcome Message -->
+        <div class="flex gap-3 max-w-[85%]">
+          <div
+            class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0 shadow-md"
+          >
+            AI
+          </div>
+          <div
+            class="bg-slate-700/60 p-4 rounded-2xl rounded-tl-none border border-slate-700 text-sm leading-relaxed"
+          >
+            Hello! Ask me any coding problem, and I'll generate the precise
+            script for it. Non-programming questions will be filtered out.
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Controller -->
+      <form
+        id="chat-form"
+        class="p-4 bg-slate-850 border-t border-slate-700 flex gap-3 items-center"
+      >
+        <input
+          type="text"
+          id="user-input"
+          autocomplete="off"
+          placeholder="Ask a coding question (e.g., Write a function to reverse a string in JS)..."
+          class="flex-1 bg-slate-750 border border-slate-600 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-slate-100 placeholder-slate-400 transition-all"
+        />
+        <button
+          type="submit"
+          id="send-btn"
+          class="bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-medium px-5 py-3 rounded-xl text-sm transition-colors cursor-pointer flex items-center justify-center shrink-0 shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          Send
+        </button>
+      </form>
+    </div>
+
+    <!-- Frontend Logic Interfacing with FastAPI -->
+    <script>
+      const chatWindow = document.getElementById("chat-window");
+      const chatForm = document.getElementById("chat-form");
+      const userInput = document.getElementById("user-input");
+      const sendBtn = document.getElementById("send-btn");
+
+      const API_URL = "http://127.0.0.1:8000/ask";
+
+      // Helper: Append messages dynamically to UI
+      function appendMessage(sender, text, isCode = false) {
+        const messageRow = document.createElement("div");
+        messageRow.className = `flex gap-3 max-w-[85%] ${sender === "user" ? "ml-auto flex-row-reverse" : ""}`;
+
+        const avatar = document.createElement("div");
+        avatar.className = `w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 shadow-md ${
+          sender === "user" ? "bg-emerald-600" : "bg-indigo-600"
+        }`;
+        avatar.textContent = sender === "user" ? "ME" : "AI";
+
+        const messageBox = document.createElement("div");
+        messageBox.className = `p-4 rounded-2xl text-sm leading-relaxed ${
+          sender === "user"
+            ? "bg-indigo-600/20 text-indigo-100 rounded-tr-none border border-indigo-500/30"
+            : "bg-slate-700/60 text-slate-100 rounded-tl-none border border-slate-700 w-full"
+        }`;
+
+        if (isCode && text) {
+          // Wrapper with layout container
+          const codeContainer = document.createElement("div");
+          codeContainer.className =
+            "flex flex-col rounded-xl overflow-hidden border border-slate-950 mt-2 shadow-inner bg-slate-900";
+
+          // Upper Header Row
+          const upperRow = document.createElement("div");
+          upperRow.className =
+            "flex justify-between items-center bg-slate-950/60 px-4 py-2 border-b border-slate-800 text-xs text-slate-400 font-medium font-sans";
+          upperRow.textContent = "Code Block Output";
+
+          // Copy Button Component
+          const ctc = document.createElement("button");
+          ctc.className =
+            "flex items-center gap-1 px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer";
+
+          // SVG Icon + Copy Label Layout
+          ctc.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-3.5 h-3.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 0 1-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 0 1 1.5.124m7.5 10.376A8.965 8.965 0 0 0 12 12.75c-.497 0-.982.04-1.455.12l-.179.032m7.374 4.344a9.06 9.06 0 0 0 1.5-.124V3.375c0-.621-.504-1.125-1.125-1.125h-9.75a1.125 1.125 0 0 0-1.125 1.125V6.75M19.5 4.5h-10.5M19.5 7.5h-10.5m10.5 3h-10.5m7.5 6h-4.5" />
+            </svg>
+            <span class="btn-text">Copy</span>
+          `;
+
+          const pre = document.createElement("pre");
+          pre.className =
+            "p-4 font-mono text-xs text-amber-200 overflow-x-auto max-w-full whitespace-pre";
+          pre.textContent = text.trim();
+
+          // Clipboard logic execution with UI status change
+          ctc.addEventListener("click", () => {
+            navigator.clipboard
+              .writeText(pre.textContent)
+              .then(() => {
+                const textLabel = ctc.querySelector(".btn-text");
+                textLabel.textContent = "Copied!";
+                ctc.classList.add("bg-emerald-800", "text-emerald-200");
+
+                // Reset state after 2 seconds
+                setTimeout(() => {
+                  textLabel.textContent = "Copy";
+                  ctc.classList.remove("bg-emerald-800", "text-emerald-200");
+                }, 2000);
+              })
+              .catch((err) => {
+                console.error("Error copying text: ", err);
+              });
+          });
+
+          upperRow.appendChild(ctc);
+          codeContainer.appendChild(upperRow);
+          codeContainer.appendChild(pre);
+
+          messageBox.textContent = "Here is the code layout:";
+          messageBox.appendChild(codeContainer);
+        } else {
+          // if(text.includes("<a href=")){
+
+          // }
+          messageBox.innerHTML = text;
+        }
+
+        messageRow.appendChild(avatar);
+        messageRow.appendChild(messageBox);
+        chatWindow.appendChild(messageRow);
+
+        // Auto-scroll to view newest messages
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+
+      // Helper: Loading animation markup
+      function createLoadingIndicator() {
+        const loadingRow = document.createElement("div");
+        loadingRow.id = "loading-indicator";
+        loadingRow.className = "flex gap-3 max-w-[85%] items-center";
+        loadingRow.innerHTML = `
+                    <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">AI</div>
+                    <div class="bg-slate-700/40 px-4 py-3 rounded-2xl rounded-tl-none border border-slate-700/60 flex items-center gap-1.5">
+                        <div class="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style="animation-delay: 0ms"></div>
+                        <div class="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style="animation-delay: 150ms"></div>
+                        <div class="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style="animation-delay: 300ms"></div>
+                    </div>
+                `;
+        chatWindow.appendChild(loadingRow);
+        chatWindow.scrollTop = chatWindow.scrollHeight;
+      }
+
+      function removeLoadingIndicator() {
+        const indicator = document.getElementById("loading-indicator");
+        if (indicator) indicator.remove();
+      }
+
+      // Handle form submission
+      chatForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const promptText = userInput.value.trim();
+        if (!promptText) return;
+
+        // Render user message & clear input field
+        appendMessage("user", promptText);
+        userInput.value = "";
+
+        // Lock form interface during network lifecycle
+        userInput.disabled = true;
+        sendBtn.disabled = true;
+        createLoadingIndicator();
+
+        try {
+          // throw new Error("esi kuch bhi");
+
+          const response = await fetch(API_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ prompt: promptText }),
+          });
+
+          if (!response.ok) {
+            if (response.status == 429) {
+              throw new Error(`429, too many request`);
+            }
+
+            throw new Error(`HTTP Error Status: ${response.status}`);
+          }
+
+          const data = await response.json();
+          removeLoadingIndicator();
+
+          // Process structured few-shot instructions coming from server
+          if (data.isCodingQuestion && data.code) {
+            appendMessage("ai", data.code, true);
+          } else {
+            appendMessage(
+              "ai",
+              "I apologize, but I am configured to strictly answer programming-related queries. Let me know if you need help writing code!",
+            );
+          }
+        } catch (error) {
+          console.error("Fetch Error:", error);
+          removeLoadingIndicator();
+
+          if (error.toString().includes("429")) {
+            console.log("rate limiter working");
+            appendMessage("ai",
+              "You have made 5 request within an hour, to use more please wait an hour and try again.",
+            );
+          } else {
+            appendMessage(
+              "ai",
+              `Connection Error: Unable to access server. Please try reloading the site, if the issue still persist try contacting me from my <a href='https://dheerajpatelportfolio.vercel.app' target='_blank' style="text-decoration:underline; color:#8282d6; text-shadow: 0 0 2px black;font-weight:700" >Portfolio</a>`,
+            );
+          }
+        } finally {
+          // Unlock interface
+          userInput.disabled = false;
+          sendBtn.disabled = false;
+          userInput.focus();
+        }
+      });
+    </script>
+  </body>
+</html>
